@@ -388,8 +388,12 @@ func extractBinaryFromTarGz(r io.Reader, binaryName string, outPath string) erro
 func writeExecutable(r io.Reader, outPath string) error {
 	// Create the parent at 0755 explicitly: the writer's own parent creation is
 	// tuned for private config files, and an install directory on PATH is not one.
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+	parentDir := filepath.Dir(outPath)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
 		return fmt.Errorf("create parent dir: %w", err)
+	}
+	if err := os.Chmod(parentDir, 0o755); err != nil {
+		return fmt.Errorf("set parent dir permissions: %w", err)
 	}
 	if _, err := filemerge.WriteStreamAtomic(outPath, r, 0o755); err != nil {
 		return fmt.Errorf("write %s: %w", outPath, err)

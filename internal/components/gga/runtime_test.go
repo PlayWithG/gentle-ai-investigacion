@@ -42,7 +42,7 @@ func TestEnsureRuntimeAssetsOverwritesStalePRMode(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	const stale = "#!/usr/bin/env bash\n# stale-version\n"
+	const stale = "#!/bin/sh\n# stale-version\n"
 	if err := os.WriteFile(path, []byte(stale), 0o755); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}

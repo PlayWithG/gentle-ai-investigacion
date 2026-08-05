@@ -181,6 +181,9 @@ func uvInstallHint(profile system.PlatformProfile) string {
 	case "brew":
 		return "brew install uv"
 	case "apt":
+		if profile.OS == "android" {
+			return "pkg install -y uv (or see https://docs.astral.sh/uv/getting-started/installation/)"
+		}
 		return "sudo apt-get install -y uv (or see https://docs.astral.sh/uv/getting-started/installation/)"
 	case "pacman":
 		return "sudo pacman -S --noconfirm uv"
@@ -207,6 +210,9 @@ func (profileResolver) ResolveComponentInstall(profile system.PlatformProfile, c
 func (profileResolver) ResolveDependencyInstall(profile system.PlatformProfile, dependency string) (CommandSequence, error) {
 	if dependency == "" {
 		return nil, fmt.Errorf("dependency name is required")
+	}
+	if profile.OS == "android" {
+		return CommandSequence{{"pkg", "install", "-y", dependency}}, nil
 	}
 
 	switch profile.PackageManager {
@@ -261,8 +267,8 @@ func resolveOpenCodeInstall(profile system.PlatformProfile) (CommandSequence, er
 		// re-enumerating managers would silently narrow the probe's list
 		// (issue #2499). The gate keeps a probe-rejected Linux profile
 		// (empty PackageManager) on the unsupported arm.
-		if profile.OS == "linux" && profile.PackageManager != "" {
-			if profile.NpmWritable {
+		if (profile.OS == "linux" || profile.OS == "android") && profile.PackageManager != "" {
+			if profile.OS == "android" || profile.NpmWritable {
 				return CommandSequence{{"npm", "install", "-g", "--ignore-scripts", pkg}}, nil
 			}
 			return CommandSequence{{"sudo", "npm", "install", "-g", "--ignore-scripts", pkg}}, nil

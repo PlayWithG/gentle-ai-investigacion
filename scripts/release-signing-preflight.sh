@@ -30,7 +30,7 @@ fi
 derived=$(sed -n '2{s/\r$//;p;}' "$derived_file")
 [[ -n "$derived" ]] || die "derived public key is empty"
 
-if ! validated_keys=$(./scripts/canonicalize-release-public-keys.sh); then
+if ! validated_keys=$(bash ./scripts/canonicalize-release-public-keys.sh); then
   die "MINISIGN_PUBLIC_KEYS is not canonical"
 fi
 [[ "$validated_keys" == "$MINISIGN_PUBLIC_KEYS_CANONICAL" ]] ||

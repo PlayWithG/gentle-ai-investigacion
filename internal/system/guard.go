@@ -19,7 +19,7 @@ func EnsureSupportedOS(goos string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%w: only macOS, Linux, and Windows are supported (detected %s)", ErrUnsupportedOS, goos)
+	return fmt.Errorf("%w: only macOS, Linux, Windows, and Android/Termux are supported (detected %s)", ErrUnsupportedOS, goos)
 }
 
 func EnsureSupportedPlatform(profile PlatformProfile) error {
@@ -27,7 +27,7 @@ func EnsureSupportedPlatform(profile PlatformProfile) error {
 		return err
 	}
 
-	if profile.OS == "linux" && !profile.Supported {
+	if (profile.OS == "linux" || profile.OS == "android") && !profile.Supported {
 		distro := strings.TrimSpace(profile.LinuxDistro)
 		if distro == "" {
 			distro = LinuxDistroUnknown
@@ -36,6 +36,11 @@ func EnsureSupportedPlatform(profile PlatformProfile) error {
 		// A refusal that names no exit is why users edited /etc/os-release to
 		// lie about their distribution. This one names what was searched,
 		// where, and the single thing that resolves it.
+		managers := linuxPackageManagers
+		if profile.OS == "android" {
+			managers = androidPackageManagers
+		}
+
 		return fmt.Errorf(
 			"%w: no package manager found on PATH (detected distro %s).\n"+
 				"gentle-ai looks for these, in order: %s\n"+
@@ -44,8 +49,8 @@ func EnsureSupportedPlatform(profile PlatformProfile) error {
 				"Install one of them, or add the directory holding it to PATH, then run gentle-ai again.",
 			ErrUnsupportedLinuxDistro,
 			distro,
-			strings.Join(linuxPackageManagers, ", "),
-			strings.Join(linuxPackageManagers, " "),
+			strings.Join(managers, ", "),
+			strings.Join(managers, " "),
 		)
 	}
 

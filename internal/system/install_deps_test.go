@@ -13,6 +13,26 @@ func TestInstallHintGitDarwin(t *testing.T) {
 	}
 }
 
+func TestInstallHintsAndCommandsTermuxAvoidSudo(t *testing.T) {
+	profile := PlatformProfile{OS: "android", LinuxDistro: LinuxDistroTermux, PackageManager: "apt"}
+
+	if got := installHintGit(profile); got != "pkg install -y git" {
+		t.Fatalf("installHintGit(android) = %q", got)
+	}
+	if got := installHintNode(profile); got != "pkg install -y nodejs" {
+		t.Fatalf("installHintNode(android) = %q", got)
+	}
+	if got := installHintGo(profile); got != "pkg install -y golang" {
+		t.Fatalf("installHintGo(android) = %q", got)
+	}
+	for _, name := range []string{"git", "curl", "node", "go"} {
+		cmds := InstallCommandsForDep(name, profile)
+		if len(cmds) == 0 || cmds[0][0] != "pkg" {
+			t.Fatalf("InstallCommandsForDep(%q, android) = %v, want pkg command", name, cmds)
+		}
+	}
+}
+
 func TestInstallHintGitUbuntu(t *testing.T) {
 	profile := PlatformProfile{OS: "linux", PackageManager: "apt", LinuxDistro: "ubuntu"}
 	hint := installHintGit(profile)

@@ -663,7 +663,7 @@ func TestTierIsClassifiedByContentNotExtension(t *testing.T) {
 		},
 		{
 			name:  "executable Markdown",
-			files: []candidateFile{{path: "docs/guide.md", content: "#!/usr/bin/env bash\necho hello\n"}},
+			files: []candidateFile{{path: "docs/guide.md", content: "#!/bin/sh\necho hello\n"}},
 			want:  RiskMedium,
 		},
 		{

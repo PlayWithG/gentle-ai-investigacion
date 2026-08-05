@@ -93,13 +93,18 @@ func TestReleaseAssetVerifierPreservesReadOnlyRotationVerification(t *testing.T)
 	firstKey, signingKey := makeKey(1), makeKey(2)
 	fakeBin := t.TempDir()
 	ghLog := filepath.Join(t.TempDir(), "gh-calls.log")
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skipf("bash is unavailable for release fixtures: %v", err)
+	}
 	writeExecutable := func(name, content string) {
 		t.Helper()
+		content = strings.Replace(content, "#!__BASH_PATH__", "#!"+bashPath, 1)
 		if err := os.WriteFile(filepath.Join(fakeBin, name), []byte(content), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	writeExecutable("gh", `#!/usr/bin/env bash
+	writeExecutable("gh", `#!__BASH_PATH__
 set -euo pipefail
 printf '%s\n' "$*" >>"$GH_CALL_LOG"
 if [[ "$1" == api && "$2" == "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" ]]; then
@@ -128,7 +133,7 @@ if [[ "$1" == release && "$2" == download && "$3" == "$GITHUB_REF_NAME" ]]; then
 fi
 exit 64
 `)
-	writeExecutable("minisign", `#!/usr/bin/env bash
+	writeExecutable("minisign", `#!__BASH_PATH__
 set -euo pipefail
 public_key=
 while (( $# > 0 )); do
@@ -356,7 +361,11 @@ func TestRequireCISuccessSelectsNewestExactCommitRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			ghPath := filepath.Join(fakeBin, "gh")
-			if err := os.WriteFile(ghPath, []byte(`#!/usr/bin/env bash
+			bashPath, err := exec.LookPath("bash")
+			if err != nil {
+				t.Skipf("bash is unavailable for the fake gh fixture: %v", err)
+			}
+			fixture := strings.Replace(`#!__BASH_PATH__
 set -euo pipefail
 [[ "$1" == api ]]
 [[ "$2" == --paginate ]]
@@ -370,7 +379,8 @@ fi
 [[ "$5" == '.workflow_runs[] | [.created_at, .id, .status, (.conclusion // "none"), .html_url] | @tsv' ]]
 [[ "${FAKE_GH_FAILS:-0}" != 1 ]] || exit 42
 cat "$FAKE_GH_RESPONSE"
-`), 0o700); err != nil {
+			`, "__BASH_PATH__", bashPath, 1)
+			if err := os.WriteFile(ghPath, []byte(fixture), 0o700); err != nil {
 				t.Fatal(err)
 			}
 
@@ -422,7 +432,7 @@ func TestCanonicalReleasePublicKeysControlRealLinkerBuild(t *testing.T) {
 		outPath := filepath.Join(t.TempDir(), "gentle-ai")
 		cmd := exec.Command("bash", "-c", `
 set -euo pipefail
-canonical=$(./scripts/canonicalize-release-public-keys.sh)
+canonical=$(bash ./scripts/canonicalize-release-public-keys.sh)
 go build -trimpath -o "$OUT" -ldflags "-X $LINKER_TARGET=$canonical" ./cmd/gentle-ai
 `)
 		cmd.Dir = repoRoot

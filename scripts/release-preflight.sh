@@ -20,7 +20,7 @@ require_env GITHUB_SHA
 
 tag=$GITHUB_REF_NAME
 [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || die "tag must be exact stable semver (vMAJOR.MINOR.PATCH)"
-if ! canonical_public_keys=$(./scripts/canonicalize-release-public-keys.sh); then
+if ! canonical_public_keys=$(bash ./scripts/canonicalize-release-public-keys.sh); then
   die "MINISIGN_PUBLIC_KEYS is not canonical"
 fi
 [[ "$canonical_public_keys" == "$MINISIGN_PUBLIC_KEYS" ]] || die "public-key canonicalization changed the configured value"

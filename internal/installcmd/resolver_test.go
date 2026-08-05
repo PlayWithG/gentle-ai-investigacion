@@ -168,6 +168,12 @@ func TestResolveDependencyInstall(t *testing.T) {
 			want:    CommandSequence{{"sudo", "apt-get", "install", "-y", "somepkg"}},
 		},
 		{
+			name:    "termux resolves pkg command without sudo",
+			profile: system.PlatformProfile{OS: "android", LinuxDistro: system.LinuxDistroTermux, PackageManager: "apt"},
+			dep:     "somepkg",
+			want:    CommandSequence{{"pkg", "install", "-y", "somepkg"}},
+		},
+		{
 			name:    "arch resolves pacman command",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroArch, PackageManager: "pacman"},
 			dep:     "somepkg",
@@ -339,6 +345,12 @@ func TestResolveAgentInstall(t *testing.T) {
 		{
 			name:    "opencode on ubuntu nvm skips sudo",
 			profile: system.PlatformProfile{OS: "linux", LinuxDistro: system.LinuxDistroUbuntu, PackageManager: "apt", NpmWritable: true},
+			agent:   model.AgentOpenCode,
+			want:    CommandSequence{{"npm", "install", "-g", "--ignore-scripts", "opencode-ai@latest"}},
+		},
+		{
+			name:    "opencode on termux uses npm without sudo",
+			profile: system.PlatformProfile{OS: "android", LinuxDistro: system.LinuxDistroTermux, PackageManager: "apt"},
 			agent:   model.AgentOpenCode,
 			want:    CommandSequence{{"npm", "install", "-g", "--ignore-scripts", "opencode-ai@latest"}},
 		},

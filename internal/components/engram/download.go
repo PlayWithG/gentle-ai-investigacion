@@ -148,6 +148,9 @@ func DownloadLatestBinary(profile system.PlatformProfile, isBeta bool) (string, 
 	if isBeta {
 		return engramGoInstallFn(engramCanonicalPackage + "@main")
 	}
+	if profile.OS == "android" {
+		return "", fmt.Errorf("stable Engram releases do not publish Android assets; install engram natively in Termux and retry")
+	}
 
 	ctx := context.Background()
 
@@ -517,8 +520,12 @@ func engramDownloadToFile(ctx context.Context, url string, outPath string) (hexD
 
 	// Create the parent at 0755 explicitly: the writer's own parent creation is
 	// tuned for private config files, and a download directory on PATH is not one.
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+	parentDir := filepath.Dir(outPath)
+	if err := os.MkdirAll(parentDir, 0o755); err != nil {
 		return "", fmt.Errorf("create dir: %w", err)
+	}
+	if err := os.Chmod(parentDir, 0o755); err != nil {
+		return "", fmt.Errorf("set download dir permissions: %w", err)
 	}
 	result, err := filemerge.WriteStreamAtomic(outPath, resp.Body, 0o644)
 	if err != nil {
@@ -650,6 +657,7 @@ func stopEngramProcessesWith(runner system.PowerShellRunner) error {
 
 // engramInstallDir returns the directory where the engram binary should be installed
 // for the given OS.
+//   - Android/Termux: $PREFIX/bin
 //   - Linux/macOS: /usr/local/bin (fallback: ~/.local/bin if not writable)
 //   - Windows: %LOCALAPPDATA%\engram\bin
 func engramInstallDir(goos string) string {
@@ -660,6 +668,11 @@ func engramInstallDir(goos string) string {
 			localAppData = filepath.Join(home, "AppData", "Local")
 		}
 		return filepath.Join(localAppData, "engram", "bin")
+	}
+	if goos == "android" {
+		if prefix := os.Getenv("PREFIX"); prefix != "" {
+			return filepath.Join(prefix, "bin")
+		}
 	}
 
 	// Linux/macOS: try /usr/local/bin first.

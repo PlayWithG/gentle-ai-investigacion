@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -31,6 +32,7 @@ const (
 	LinuxDistroDebian  = "debian"
 	LinuxDistroArch    = "arch"
 	LinuxDistroFedora  = "fedora"
+	LinuxDistroTermux  = "termux"
 )
 
 // linuxPackageManagers is the ordered list of package managers gentle-ai
@@ -59,6 +61,11 @@ var linuxPackageManagers = []string{
 	"emerge", // Gentoo, Calculate
 }
 
+// Termux exposes apt for package management, but its user-facing wrapper is
+// pkg. Keep this separate from Linux probing so Android never inherits sudo
+// or a Linux distribution assumption.
+var androidPackageManagers = []string{"apt"}
+
 // detectedToolNames is the fixed probe list passed to DetectTools: the tools
 // other detection reads, plus every Linux package manager.
 func detectedToolNames() []string {
@@ -74,7 +81,7 @@ type DetectionResult struct {
 }
 
 func IsSupportedOS(goos string) bool {
-	return goos == "darwin" || goos == "linux" || goos == "windows"
+	return goos == "darwin" || goos == "linux" || goos == "windows" || goos == "android"
 }
 
 func Detect(ctx context.Context) (DetectionResult, error) {
@@ -99,15 +106,27 @@ func Detect(ctx context.Context) (DetectionResult, error) {
 	return result, nil
 }
 
-// detectNpmWritable checks if npm's global prefix is under the user's home
-// directory (nvm, fnm, volta, etc.), meaning sudo is not needed for global installs.
+// detectNpmWritable checks whether the actual npm global prefix accepts a
+// temporary directory. This covers home-managed Node installations and
+// Termux's writable $PREFIX, where the prefix is outside the home directory.
 func detectNpmWritable(homeDir string) bool {
 	out, err := exec.Command("npm", "config", "get", "prefix").Output()
 	if err != nil {
 		return false
 	}
 	prefix := strings.TrimSpace(string(out))
-	return strings.HasPrefix(prefix, homeDir)
+	if prefix == "" {
+		return false
+	}
+	if strings.HasPrefix(prefix, homeDir+string(os.PathSeparator)) || prefix == homeDir {
+		return true
+	}
+	tmpDir, err := os.MkdirTemp(prefix, ".gentle-ai-npm-writable-*")
+	if err != nil {
+		return false
+	}
+	_ = os.RemoveAll(tmpDir)
+	return true
 }
 
 func detectFromInputs(goos, arch, shell, linuxOSRelease string, tools map[string]ToolStatus, configs []ConfigState) DetectionResult {
@@ -135,16 +154,23 @@ func detectFromInputs(goos, arch, shell, linuxOSRelease string, tools map[string
 }
 
 func osReleaseContent(goos string) (string, error) {
-	if goos != "linux" {
+	if goos != "linux" && goos != "android" {
 		return "", nil
 	}
 
-	data, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return "", err
+	paths := []string{"/etc/os-release"}
+	if prefix := os.Getenv("PREFIX"); prefix != "" {
+		paths = append(paths, filepath.Join(prefix, "etc", "os-release"))
 	}
-
-	return string(data), nil
+	var lastErr error
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return string(data), nil
+		}
+		lastErr = err
+	}
+	return "", lastErr
 }
 
 func resolvePlatformProfile(goos, linuxOSRelease string, tools map[string]ToolStatus) PlatformProfile {
@@ -175,6 +201,21 @@ func resolvePlatformProfile(goos, linuxOSRelease string, tools map[string]ToolSt
 
 		profile.PackageManager = ""
 		profile.Supported = false
+
+		return profile
+	case "android":
+		profile.LinuxDistro = osReleaseID(linuxOSRelease)
+		if profile.LinuxDistro == LinuxDistroUnknown {
+			profile.LinuxDistro = LinuxDistroTermux
+		}
+
+		for _, manager := range androidPackageManagers {
+			if tool, ok := tools[manager]; ok && tool.Installed {
+				profile.PackageManager = manager
+				profile.Supported = true
+				return profile
+			}
+		}
 
 		return profile
 	case "windows":

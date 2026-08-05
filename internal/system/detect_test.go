@@ -11,6 +11,7 @@ func TestIsSupportedOS(t *testing.T) {
 		{name: "darwin is supported", goos: "darwin", want: true},
 		{name: "linux is supported", goos: "linux", want: true},
 		{name: "windows is supported", goos: "windows", want: true},
+		{name: "android is supported", goos: "android", want: true},
 	}
 
 	for _, tc := range tests {
@@ -171,6 +172,15 @@ func TestResolvePlatformProfileMatrix(t *testing.T) {
 			goos:          "windows",
 			wantOS:        "windows",
 			wantPM:        "winget",
+			wantSupported: true,
+		},
+		{
+			name:          "termux profile",
+			goos:          "android",
+			tools:         toolsOnPath("apt"),
+			wantOS:        "android",
+			wantPM:        "apt",
+			wantDistro:    LinuxDistroTermux,
 			wantSupported: true,
 		},
 		{

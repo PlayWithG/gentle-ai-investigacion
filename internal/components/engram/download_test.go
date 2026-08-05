@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -257,6 +258,20 @@ func TestEngramInstallDir(t *testing.T) {
 				t.Errorf("engramInstallDir(%s) = %q, want it to contain %q", tt.goos, dir, tt.wantSubstr)
 			}
 		})
+	}
+}
+
+func TestEngramInstallDirAndroidUsesTermuxPrefix(t *testing.T) {
+	t.Setenv("PREFIX", "/data/data/com.termux/files/usr")
+	if got, want := engramInstallDir("android"), "/data/data/com.termux/files/usr/bin"; got != want {
+		t.Fatalf("engramInstallDir(android) = %q, want %q", got, want)
+	}
+}
+
+func TestDownloadLatestBinaryRejectsStableAndroidRelease(t *testing.T) {
+	_, err := DownloadLatestBinary(system.PlatformProfile{OS: "android"}, false)
+	if err == nil || !strings.Contains(err.Error(), "do not publish Android assets") {
+		t.Fatalf("DownloadLatestBinary(android) error = %v, want Android asset error", err)
 	}
 }
 
@@ -1304,7 +1319,11 @@ func TestEngramGoInstallFromMain_BypassesPublicGoProxy(t *testing.T) {
 		}
 		t.Setenv("GENTLE_AI_FAKE_GO", "1")
 	} else {
-		script := "#!/usr/bin/env bash\n" +
+		shell, err := exec.LookPath("bash")
+		if err != nil {
+			t.Skipf("bash is unavailable for the fake go fixture: %v", err)
+		}
+		script := "#!" + shell + "\n" +
 			"printf 'GONOSUMDB=%s\\nGOPRIVATE=%s\\nGONOPROXY=%s\\n' \"${GONOSUMDB:-}\" \"${GOPRIVATE:-}\" \"${GONOPROXY:-}\" > \"$GO_ENV_RECORD\"\n"
 		if err := os.WriteFile(fakeGo, []byte(script), 0o755); err != nil {
 			t.Fatal(err)
