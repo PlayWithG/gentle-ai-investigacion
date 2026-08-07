@@ -274,7 +274,7 @@ func TestAdapterInstallCommandSequenceUsesNpmWhenPnpmIsUnavailable(t *testing.T)
 		{"pi", "install", "npm:gentle-engram"},
 		{"pi", "install", "npm:pi-mcp-adapter"},
 		{"npm", "exec", "--yes", "--package", "gentle-engram@latest", "--", "pi-engram", "init"},
-		piSubagentsInstallCommand(system.PlatformProfile{}),
+		piSubagentsInstallCommand(system.PlatformProfile{}, []string{"pi"}),
 		{"pi", "install", "npm:@juicesharp/rpiv-ask-user-question"},
 		{"pi", "install", "npm:pi-web-access"},
 		{"pi", "install", "npm:@juicesharp/rpiv-todo"},
@@ -282,6 +282,112 @@ func TestAdapterInstallCommandSequenceUsesNpmWhenPnpmIsUnavailable(t *testing.T)
 	}
 	if !reflect.DeepEqual(commands, want) {
 		t.Fatalf("InstallCommand() = %#v, want %#v", commands, want)
+	}
+}
+
+func TestAdapterAndroidInstallCommandsUseResolvedNodePiScript(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "cli.js")
+	launcher := filepath.Join(dir, "bin", "pi")
+	if err := os.WriteFile(script, []byte("#!/usr/bin/env node\nconsole.log('pi');\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(launcher), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(script, launcher); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &Adapter{
+		lookPath: func(file string) (string, error) {
+			switch file {
+			case "pi":
+				return launcher, nil
+			case "node":
+				return filepath.Join(dir, "node"), nil
+			case "pnpm":
+				return "", os.ErrNotExist
+			default:
+				t.Fatalf("lookPath called with unexpected %q", file)
+				return "", os.ErrNotExist
+			}
+		},
+		statPath: defaultStat,
+	}
+
+	commands, err := a.InstallCommand(system.PlatformProfile{OS: "android"})
+	if err != nil {
+		t.Fatalf("InstallCommand() error = %v", err)
+	}
+	wantPrefix := []string{filepath.Join(dir, "node"), script}
+	for i, command := range commands {
+		if i == 3 {
+			if !reflect.DeepEqual(command, []string{"npm", "exec", "--yes", "--package", "gentle-engram@latest", "--", "pi-engram", "init"}) {
+				t.Fatalf("commands[%d] = %#v, want unchanged Engram init command", i, command)
+			}
+			continue
+		}
+		if !reflect.DeepEqual(command[:2], wantPrefix) || len(command) < 4 || command[2] != "install" {
+			t.Fatalf("commands[%d] = %#v, want Node-backed Pi install command", i, command)
+		}
+	}
+}
+
+func TestAdapterAndroidInstallCommandFailsWithoutUsableNodePiScript(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T) (string, string)
+		lookPath  func(piPath, nodePath string) func(string) (string, error)
+		wantInErr string
+	}{
+		{
+			name: "unresolvable launcher",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				return filepath.Join(dir, "missing-pi"), filepath.Join(dir, "node")
+			},
+			lookPath: func(piPath, _ string) func(string) (string, error) {
+				return func(file string) (string, error) {
+					if file == "pi" {
+						return piPath, nil
+					}
+					return "", os.ErrNotExist
+				}
+			},
+			wantInErr: "symlink",
+		},
+		{
+			name: "missing node",
+			setup: func(t *testing.T) (string, string) {
+				dir := t.TempDir()
+				script := filepath.Join(dir, "cli.js")
+				if err := os.WriteFile(script, []byte("console.log('pi');\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				return script, filepath.Join(dir, "missing-node")
+			},
+			lookPath: func(piPath, _ string) func(string) (string, error) {
+				return func(file string) (string, error) {
+					if file == "pi" {
+						return piPath, nil
+					}
+					return "", os.ErrNotExist
+				}
+			},
+			wantInErr: "resolve Node",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			piPath, nodePath := tt.setup(t)
+			a := &Adapter{lookPath: tt.lookPath(piPath, nodePath), statPath: defaultStat}
+			_, err := a.InstallCommand(system.PlatformProfile{OS: "android"})
+			if err == nil || !strings.Contains(err.Error(), tt.wantInErr) {
+				t.Fatalf("InstallCommand() error = %v, want error containing %q", err, tt.wantInErr)
+			}
+		})
 	}
 }
 

@@ -29,13 +29,22 @@ const (
 	engramCanonicalPackage = engramCanonicalModule + "/cmd/engram"
 )
 
+const (
+	engramAndroidReleaseVersion = "1.20.0-android.1"
+	engramAndroidAssetName      = "engram-android-arm64"
+	engramAndroidAssetURL       = "https://github.com/PlayWithG/engram/releases/download/termux-android-v1.20.0/engram-android-arm64"
+	engramAndroidBinarySHA256   = "9cc25888c1b78387f919864f9b0182005ff8cc2bc09a20aadb987bb7b679deee"
+)
+
 // Package-level vars for testability.
 var (
-	engramHTTPClient      = &http.Client{Timeout: 5 * time.Minute}
-	engramGitHubBaseURL   = "https://github.com"
-	engramInstallDirFn    = engramInstallDir
-	engramChecksumURLFn   = engramChecksumURL
-	engramStopProcessesFn = stopEngramProcesses
+	engramHTTPClient               = &http.Client{Timeout: 5 * time.Minute}
+	engramGitHubBaseURL            = "https://github.com"
+	engramInstallDirFn             = engramInstallDir
+	engramChecksumURLFn            = engramChecksumURL
+	engramStopProcessesFn          = stopEngramProcesses
+	engramAndroidAssetURLValue     = engramAndroidAssetURL
+	engramAndroidBinarySHA256Value = engramAndroidBinarySHA256
 
 	// engramGoInstallFn runs `go install <pkg>` and returns the path to the installed binary.
 	// Package-level var for testability — swapped in tests to avoid real go install calls.
@@ -149,7 +158,7 @@ func DownloadLatestBinary(profile system.PlatformProfile, isBeta bool) (string, 
 		return engramGoInstallFn(engramCanonicalPackage + "@main")
 	}
 	if profile.OS == "android" {
-		return "", fmt.Errorf("stable Engram releases do not publish Android assets; install engram natively in Termux and retry")
+		return downloadAndroidTermuxBinary()
 	}
 
 	ctx := context.Background()
@@ -238,6 +247,44 @@ func DownloadLatestBinary(profile system.PlatformProfile, isBeta bool) (string, 
 		}
 	}
 
+	return outPath, nil
+}
+
+// downloadAndroidTermuxBinary installs the pinned Android ARM64 release
+// published by the Termux compatibility fork. Unlike the upstream archive
+// path, this asset is a standalone ELF binary, so the checksum is pinned in
+// source and verified before publication to PREFIX/bin.
+func downloadAndroidTermuxBinary() (string, error) {
+	if runtime.GOARCH != "arm64" {
+		return "", fmt.Errorf("Termux Engram support currently requires arm64; found android/%s", runtime.GOARCH)
+	}
+
+	installDir := engramInstallDirFn("android")
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return "", fmt.Errorf("create Engram install dir %q: %w", installDir, err)
+	}
+	tmpDir, err := os.MkdirTemp("", "gentle-ai-engram-android-*")
+	if err != nil {
+		return "", fmt.Errorf("create Android Engram temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tmpPath := filepath.Join(tmpDir, engramAndroidAssetName)
+	actualDigest, err := engramDownloadToFile(context.Background(), engramAndroidAssetURLValue, tmpPath)
+	if err != nil {
+		return "", fmt.Errorf("download Android Engram binary: %w", err)
+	}
+	if actualDigest != engramAndroidBinarySHA256Value {
+		return "", fmt.Errorf("Android Engram checksum mismatch: expected %s, got %s", engramAndroidBinarySHA256Value, actualDigest)
+	}
+	if err := os.Chmod(tmpPath, 0o755); err != nil {
+		return "", fmt.Errorf("make Android Engram binary executable: %w", err)
+	}
+
+	outPath := filepath.Join(installDir, engramName)
+	if err := os.Rename(tmpPath, outPath); err != nil {
+		return "", fmt.Errorf("publish Android Engram binary: %w", err)
+	}
 	return outPath, nil
 }
 

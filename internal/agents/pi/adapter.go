@@ -2,6 +2,7 @@
 package pi
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -39,8 +40,13 @@ var legacyPiSubagentPackageIdentities = map[string]struct{}{
 
 var piWalkDir = filepath.WalkDir
 
-func piSubagentsInstallCommand(system.PlatformProfile) []string {
-	return []string{"pi", "install", piSubagentsJ0k3rPackageSpec}
+func piSubagentsInstallCommand(_ system.PlatformProfile, prefix []string) []string {
+	return piInstallCommand(prefix, piSubagentsJ0k3rPackageSpec)
+}
+
+func piInstallCommand(prefix []string, packageSpec string) []string {
+	command := append([]string{}, prefix...)
+	return append(command, "install", packageSpec)
 }
 
 type statResult struct {
@@ -238,17 +244,85 @@ func (a *Adapter) CapabilityManifest() capabilitymanifest.AgentCapabilityManifes
 }
 
 func (a *Adapter) InstallCommand(profile system.PlatformProfile) ([][]string, error) {
+	piPrefix := []string{"pi"}
+	if profile.OS == "android" {
+		var err error
+		piPrefix, err = a.androidPiCommandPrefix()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return [][]string{
-		{"pi", "install", "npm:gentle-pi"},
-		{"pi", "install", "npm:gentle-engram"},
-		{"pi", "install", "npm:pi-mcp-adapter"},
+		piInstallCommand(piPrefix, "npm:gentle-pi"),
+		piInstallCommand(piPrefix, "npm:gentle-engram"),
+		piInstallCommand(piPrefix, "npm:pi-mcp-adapter"),
 		a.engramInitCommand(),
-		piSubagentsInstallCommand(profile),
-		{"pi", "install", "npm:@juicesharp/rpiv-ask-user-question"},
-		{"pi", "install", "npm:pi-web-access"},
-		{"pi", "install", "npm:@juicesharp/rpiv-todo"},
-		{"pi", "install", "npm:pi-btw"},
+		piSubagentsInstallCommand(profile, piPrefix),
+		piInstallCommand(piPrefix, "npm:@juicesharp/rpiv-ask-user-question"),
+		piInstallCommand(piPrefix, "npm:pi-web-access"),
+		piInstallCommand(piPrefix, "npm:@juicesharp/rpiv-todo"),
+		piInstallCommand(piPrefix, "npm:pi-btw"),
 	}, nil
+}
+
+func (a *Adapter) androidPiCommandPrefix() ([]string, error) {
+	piPath, err := a.lookPath("pi")
+	if err != nil {
+		return nil, fmt.Errorf("resolve Android Pi launcher: %w", err)
+	}
+	if piPath == "" {
+		return nil, fmt.Errorf("resolve Android Pi launcher: empty path")
+	}
+	resolvedPiPath, err := filepath.EvalSymlinks(piPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Android Pi launcher symlink %q: %w", piPath, err)
+	}
+	if !isNodeScript(resolvedPiPath) {
+		return nil, fmt.Errorf("Android Pi launcher %q is not a regular JavaScript entrypoint or Node script", resolvedPiPath)
+	}
+
+	nodePath, err := a.lookPath("node")
+	if err != nil {
+		return nil, fmt.Errorf("resolve Node for Android Pi launcher: %w", err)
+	}
+	if nodePath == "" {
+		return nil, fmt.Errorf("resolve Node for Android Pi launcher: empty path")
+	}
+	return []string{nodePath, resolvedPiPath}, nil
+}
+
+func isNodeScript(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	ext := filepath.Ext(path)
+	if ext == ".js" || ext == ".mjs" || ext == ".cjs" {
+		return true
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	line, err := bufio.NewReader(file).ReadString('\n')
+	if err != nil && len(line) == 0 {
+		return false
+	}
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "#!") {
+		return false
+	}
+	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "#!")))
+	for _, field := range fields {
+		base := filepath.Base(field)
+		if base == "node" || base == "nodejs" {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Adapter) engramInitCommand() []string {

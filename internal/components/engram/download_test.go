@@ -268,10 +268,52 @@ func TestEngramInstallDirAndroidUsesTermuxPrefix(t *testing.T) {
 	}
 }
 
-func TestDownloadLatestBinaryRejectsStableAndroidRelease(t *testing.T) {
-	_, err := DownloadLatestBinary(system.PlatformProfile{OS: "android"}, false)
-	if err == nil || !strings.Contains(err.Error(), "do not publish Android assets") {
-		t.Fatalf("DownloadLatestBinary(android) error = %v, want Android asset error", err)
+func TestDownloadLatestBinaryAndroidUsesPinnedForkAsset(t *testing.T) {
+	if runtime.GOARCH != "arm64" {
+		t.Skip("Termux Android release is arm64-only")
+	}
+
+	content := []byte("android engram test binary")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(content)
+	}))
+	t.Cleanup(server.Close)
+
+	tmpDir := t.TempDir()
+	origClient := engramHTTPClient
+	origURL := engramAndroidAssetURLValue
+	origDigest := engramAndroidBinarySHA256Value
+	origInstallDir := engramInstallDirFn
+	engramHTTPClient = server.Client()
+	engramAndroidAssetURLValue = server.URL + "/engram-android-arm64"
+	engramAndroidBinarySHA256Value = sha256Hex(content)
+	engramInstallDirFn = func(string) string { return tmpDir }
+	t.Cleanup(func() {
+		engramHTTPClient = origClient
+		engramAndroidAssetURLValue = origURL
+		engramAndroidBinarySHA256Value = origDigest
+		engramInstallDirFn = origInstallDir
+	})
+
+	installedPath, err := DownloadLatestBinary(system.PlatformProfile{OS: "android"}, false)
+	if err != nil {
+		t.Fatalf("DownloadLatestBinary(android) error = %v", err)
+	}
+	if got, err := os.ReadFile(installedPath); err != nil || string(got) != string(content) {
+		t.Fatalf("installed Android binary = %q, read error = %v", got, err)
+	}
+	info, err := os.Stat(installedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatalf("installed Android binary is not executable: mode=%o", info.Mode())
+	}
+
+	engramAndroidBinarySHA256Value = strings.Repeat("0", 64)
+	if _, err := DownloadLatestBinary(system.PlatformProfile{OS: "android"}, false); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("checksum mismatch error = %v", err)
 	}
 }
 
